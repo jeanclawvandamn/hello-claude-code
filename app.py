@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""A simple calculator web API."""
-from flask import Flask, request, jsonify, render_template_string
+"""A simple calculator web API with FastAPI."""
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
-app = Flask(__name__)
+app = FastAPI(
+    title="🦞 Calculator API",
+    description="A simple calculator API built by Jean Claw Vandamn",
+    version="2.0.0"
+)
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -62,11 +68,12 @@ HTML_TEMPLATE = '''
             font-size: 14px;
         }
         code { background: #0a0a1a; padding: 3px 8px; border-radius: 5px; }
+        a { color: #e94560; }
     </style>
 </head>
 <body>
     <h1>🦞 Calculator</h1>
-    <p class="subtitle">Built by Jean Claw Vandamn</p>
+    <p class="subtitle">Built by Jean Claw Vandamn • <a href="/docs">API Docs</a></p>
     
     <div class="calculator">
         <input type="number" id="a" placeholder="First number" step="any">
@@ -87,7 +94,8 @@ HTML_TEMPLATE = '''
         <code>GET /api/subtract?a=10&b=4</code><br>
         <code>GET /api/multiply?a=6&b=7</code><br>
         <code>GET /api/divide?a=20&b=4</code><br><br>
-        <code>POST /api/calculate</code> with JSON body
+        <code>POST /api/calculate</code> with JSON body<br><br>
+        📚 <a href="/docs">Interactive Swagger Docs</a> | <a href="/redoc">ReDoc</a>
     </div>
     
     <script>
@@ -115,60 +123,69 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
-@app.route('/')
-def home():
-    return render_template_string(HTML_TEMPLATE)
+class CalculateRequest(BaseModel):
+    a: float
+    b: float
+    operation: str = "add"
 
-@app.route('/api/add')
-def add():
-    a = float(request.args.get('a', 0))
-    b = float(request.args.get('b', 0))
-    return jsonify({'operation': 'add', 'a': a, 'b': b, 'result': a + b})
+class CalculateResponse(BaseModel):
+    operation: str
+    a: float
+    b: float
+    result: float
 
-@app.route('/api/subtract')
-def subtract():
-    a = float(request.args.get('a', 0))
-    b = float(request.args.get('b', 0))
-    return jsonify({'operation': 'subtract', 'a': a, 'b': b, 'result': a - b})
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    """Serve the calculator web interface."""
+    return HTML_TEMPLATE
 
-@app.route('/api/multiply')
-def multiply():
-    a = float(request.args.get('a', 0))
-    b = float(request.args.get('b', 0))
-    return jsonify({'operation': 'multiply', 'a': a, 'b': b, 'result': a * b})
+@app.get("/api/add", response_model=CalculateResponse, tags=["Operations"])
+async def add(a: float = Query(..., description="First number"), 
+              b: float = Query(..., description="Second number")):
+    """Add two numbers together."""
+    return {"operation": "add", "a": a, "b": b, "result": a + b}
 
-@app.route('/api/divide')
-def divide():
-    a = float(request.args.get('a', 0))
-    b = float(request.args.get('b', 0))
+@app.get("/api/subtract", response_model=CalculateResponse, tags=["Operations"])
+async def subtract(a: float = Query(..., description="First number"), 
+                   b: float = Query(..., description="Second number")):
+    """Subtract b from a."""
+    return {"operation": "subtract", "a": a, "b": b, "result": a - b}
+
+@app.get("/api/multiply", response_model=CalculateResponse, tags=["Operations"])
+async def multiply(a: float = Query(..., description="First number"), 
+                   b: float = Query(..., description="Second number")):
+    """Multiply two numbers."""
+    return {"operation": "multiply", "a": a, "b": b, "result": a * b}
+
+@app.get("/api/divide", response_model=CalculateResponse, tags=["Operations"])
+async def divide(a: float = Query(..., description="First number"), 
+                 b: float = Query(..., description="Second number")):
+    """Divide a by b."""
     if b == 0:
-        return jsonify({'error': 'Cannot divide by zero'}), 400
-    return jsonify({'operation': 'divide', 'a': a, 'b': b, 'result': a / b})
+        raise HTTPException(status_code=400, detail="Cannot divide by zero")
+    return {"operation": "divide", "a": a, "b": b, "result": a / b}
 
-@app.route('/api/calculate', methods=['POST'])
-def calculate():
-    data = request.get_json()
-    a = float(data.get('a', 0))
-    b = float(data.get('b', 0))
-    op = data.get('operation', 'add')
-    
+@app.post("/api/calculate", response_model=CalculateResponse, tags=["Operations"])
+async def calculate(req: CalculateRequest):
+    """Perform a calculation with the specified operation."""
     operations = {
-        'add': lambda: a + b,
-        'subtract': lambda: a - b,
-        'multiply': lambda: a * b,
-        'divide': lambda: a / b if b != 0 else None
+        "add": lambda: req.a + req.b,
+        "subtract": lambda: req.a - req.b,
+        "multiply": lambda: req.a * req.b,
+        "divide": lambda: req.a / req.b if req.b != 0 else None
     }
     
-    if op not in operations:
-        return jsonify({'error': 'Invalid operation'}), 400
+    if req.operation not in operations:
+        raise HTTPException(status_code=400, detail="Invalid operation")
     
-    result = operations[op]()
+    result = operations[req.operation]()
     if result is None:
-        return jsonify({'error': 'Cannot divide by zero'}), 400
+        raise HTTPException(status_code=400, detail="Cannot divide by zero")
     
-    return jsonify({'operation': op, 'a': a, 'b': b, 'result': result})
+    return {"operation": req.operation, "a": req.a, "b": req.b, "result": result}
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    import uvicorn
     import os
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
